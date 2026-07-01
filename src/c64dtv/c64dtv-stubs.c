@@ -288,6 +288,9 @@ uint8_t ds1307_read_data_line(rtc_ds1307_t *context)
 {
     return 0;
 }
+void ds1307_sync_system_time(rtc_ds1307_t *context)
+{
+}
 
 int rtc58321a_read_snapshot(rtc_58321a_t *context, snapshot_t *s)
 {
