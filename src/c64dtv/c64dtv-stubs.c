@@ -288,9 +288,6 @@ uint8_t ds1307_read_data_line(rtc_ds1307_t *context)
 {
     return 0;
 }
-void ds1307_sync_system_time(rtc_ds1307_t *context)
-{
-}
 
 int rtc58321a_read_snapshot(rtc_58321a_t *context, snapshot_t *s)
 {
@@ -335,4 +332,8 @@ int rsuser_cmdline_options_init(void)
 int parallel_cable_cpu_resources_init(void)
 {
     return -1;
+}
+
+void ds1307_sync_system_time(rtc_ds1307_t *context)
+{
 }
