@@ -34,6 +34,12 @@ steps:
       - sleep 1 && find . -name aclocal.m4 -exec touch {} +
       - sleep 1 && find . -name configure -exec touch {} + && find . -name config.h.in -exec touch {} +
       - find . -name Makefile.in -exec touch {} +
+      # Regenerate the bison parser into the SOURCE tree (repo root) BEFORE the
+      # out-of-tree build dir exists — the out-of-tree Makefiles resolve
+      # src/monitor/mon_parse.c via VPATH. (This mirrors build-engine.yaml, which
+      # runs bison at the root; running it after `cd build-macos` looked for the
+      # .y grammar under build-macos/ and failed "cannot open".)
+      - bison -d -o src/monitor/mon_parse.c src/monitor/mon_parse.y
       - mkdir -p build-macos && cd build-macos
       - >-
         ../configure --enable-option-checking=fatal
@@ -41,8 +47,8 @@ steps:
         --disable-pdf-docs --disable-html-docs
         --without-pulse --without-alsa --without-oss
       # Prove the CoreAudio sound driver + native arch backend configured & compile.
+      # (grep path is relative to the build-macos/ out-of-tree dir.)
       - grep -Eq '^SOUND_DRIVERS = .*soundcoreaudio\.o' src/arch/shared/sounddrv/Makefile || (echo "CoreAudio driver not enabled by configure" && exit 1)
-      - bison -d -o src/monitor/mon_parse.c src/monitor/mon_parse.y
       - make -C src gcr.o V=1
       - make -C src/drive && make -C src/vdrive && make -C src/fsdevice
       - make -C src/userport && make -C src/core/rtc
