@@ -1562,12 +1562,14 @@ void mon_stopwatch_reset(void)
     mon_out("Stopwatch reset to 0.\n");
 }
 
+#ifdef HAVE_MCP_SERVER
 unsigned long mon_stopwatch_get_elapsed(void)
 {
     monitor_interface_t *vice_interface;
     vice_interface = mon_interfaces[default_memspace];
     return (unsigned long)(*vice_interface->clk - stopwatch_start_time[default_memspace]);
 }
+#endif
 
 /* Local helper functions for building the lists */
 static monitor_cpu_type_t *find_monitor_cpu_type(CPU_TYPE_t cputype)
@@ -3049,13 +3051,15 @@ void monitor_check_icount_interrupt(void)
  */
 int monitor_check_breakpoints(MEMSPACE mem, uint16_t addr)
 {
-    int hit = mon_breakpoint_check_checkpoint(mem, addr, 0, e_exec); /* FIXME */
 #ifdef HAVE_MCP_SERVER
+    int hit = mon_breakpoint_check_checkpoint(mem, addr, 0, e_exec); /* FIXME */
     if (hit) {
         mcp_mark_checkpoint_if_active();
     }
-#endif
     return hit;
+#else
+    return mon_breakpoint_check_checkpoint(mem, addr, 0, e_exec); /* FIXME */
+#endif
 }
 
 /* called by macro DO_INTERRUPT() in 6510(dtv)core.c */
