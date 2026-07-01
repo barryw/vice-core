@@ -1,0 +1,78 @@
+# vice-core Phase-B feasibility combo — macOS UI + MCP server together (WAL-120, F4b).
+#
+# Phase A (build-macos.yaml) held the boundary: --enable-macosui built WITHOUT
+# --enable-mcp-server, so libmicrohttpd and the network.server entitlement never
+# entered the signed Mac bundle. F4b (WAL-120) lifts that boundary as an OPTIONAL,
+# off-by-default capability. This pipeline is the feasibility gate for that: it
+# proves the canonical core compiles the macOS engine bridge AND the MCP server
+# (libmcp.a linked against Homebrew libmicrohttpd) in a SINGLE configure — i.e. the
+# two --enable-* flags are orthogonal on darwin exactly as they are on Linux
+# (build-engine.yaml already proves gtk3ui + mcp-server).
+#
+# Why the flags don't collide: --enable-mcp-server is NOT a UI (it is absent from
+# configure.ac's VICE_ARG_LIST_AT_MOST_ONE UI mutual-exclusion), so it composes
+# with --enable-macosui. It adds libmcp.a + a libmicrohttpd worker thread; it does
+# not touch the emulation hot path or the Cocoa/Metal UI.
+#
+# Scope of THIS proof: configure + compile libmcp.a + rebuild the macOS arch bridge
+# with the flag on. It intentionally does NOT do a full app link / sign / notarize —
+# that is the consumer-app work in barryw/vice-macos, gated on WAL-134 (retarget
+# vice-macos onto this core) and the WAL-120 security review. See F4b-INTEGRATION.md.
+when:
+  - event: [push, pull_request, manual]
+    branch: main
+
+labels:
+  platform: darwin/arm64
+
+steps:
+  - name: install-deps
+    image: bash
+    commands:
+      - brew update
+      # libmicrohttpd is the ONLY new dependency vs the Phase-A macOS combo. Homebrew
+      # ships it as a keg with a pkg-config .pc, which configure.ac finds via
+      # PKG_CHECK_MODULES(LIBMICROHTTPD, [libmicrohttpd >= 0.9.0], ...).
+      - brew install autoconf automake bison pkg-config dos2unix xa libmicrohttpd
+
+  - name: build-macosui-mcp
+    image: bash
+    environment:
+      ENGINE_DEPLOYMENT_TARGET: "12.0"
+    commands:
+      - export PATH="$$(brew --prefix bison)/bin:$$PATH"
+      # Homebrew keg-only / non-default .pc locations → make pkg-config see libmicrohttpd.
+      - export PKG_CONFIG_PATH="$$(brew --prefix libmicrohttpd)/lib/pkgconfig:$$PKG_CONFIG_PATH"
+      - pkg-config --exists 'libmicrohttpd >= 0.9.0' && echo "libmicrohttpd $$(pkg-config --modversion libmicrohttpd) visible to pkg-config"
+      - rm -rf build-macos-mcp && rm -f src/config.h
+      - find . -name config.status -exec rm -f {} +
+      - ./src/buildtools/genvicedate_h.sh
+      - ./autogen.sh
+      - sleep 1 && find . -name aclocal.m4 -exec touch {} +
+      - sleep 1 && find . -name configure -exec touch {} + && find . -name config.h.in -exec touch {} +
+      - find . -name Makefile.in -exec touch {} +
+      # Bison parser into the SOURCE tree before the out-of-tree dir exists (VPATH),
+      # same rationale as build-macos.yaml.
+      - bison -d -o src/monitor/mon_parse.c src/monitor/mon_parse.y
+      - mkdir -p build-macos-mcp && cd build-macos-mcp
+      - >-
+        ../configure --enable-option-checking=fatal
+        --enable-macosui --enable-mcp-server
+        --enable-macos-minimum-version=$${ENGINE_DEPLOYMENT_TARGET}
+        --disable-pdf-docs --disable-html-docs
+        --without-pulse --without-alsa --without-oss
+      # Assert BOTH capabilities actually configured on — a green build that silently
+      # dropped mcp-server would be a false pass.
+      - grep -q '^#define HAVE_MCP_SERVER' src/config.h || (echo "HAVE_MCP_SERVER not defined — mcp-server did not configure in" && exit 1)
+      - grep -Eq '^SOUND_DRIVERS = .*soundcoreaudio\.o' src/arch/shared/sounddrv/Makefile || (echo "CoreAudio driver not enabled by configure" && exit 1)
+      # Compile the MCP server library (libmcp.a — includes vendored cJSON) against
+      # the Homebrew libmicrohttpd headers. This is the crux of the feasibility proof.
+      - make -C src/mcp V=1
+      - test -f src/mcp/libmcp.a || (echo "libmcp.a was not produced" && exit 1)
+      # Prove the macOS engine bridge still builds with the flag on (no regression).
+      - make -C src gcr.o V=1
+      - make -C src/drive && make -C src/vdrive && make -C src/fsdevice
+      - make -C src/userport && make -C src/core/rtc
+      - make -C src/arch/macos V=1
+      - make -C src/lib/linenoise-ng && make -C src/lib/md5
+      - echo "Phase-B combo (--enable-macosui + --enable-mcp-server, libmcp.a linked vs Homebrew libmicrohttpd) built green"
